@@ -7,6 +7,7 @@ body:
     attributes:
       label: Tipo de Teste
       options:
+        - Exploratório
         - Funcional
         - Regressão
         - Smoke
