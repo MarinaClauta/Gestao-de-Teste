@@ -31,9 +31,9 @@ body:
     attributes:
       label: Ambiente onde falhou
       options:
-        - Local
-        - CI/CD (GitHub Actions)
+        - Teste
         - Staging
+        - Homologação
         - Produção
     validations:
       required: true
