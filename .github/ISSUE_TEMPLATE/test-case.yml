@@ -1,0 +1,78 @@
+name: 🧪 Caso de Teste
+description: Registrar um novo caso de teste
+labels: ["test-case"]
+body:
+  - type: dropdown
+    id: type
+    attributes:
+      label: Tipo de Teste
+      options:
+        - Funcional
+        - Regressão
+        - Smoke
+        - Integração
+        - E2E
+        - Performance
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Prioridade
+      options:
+        - 🔴 Alta
+        - 🟡 Média
+        - 🟢 Baixa
+    validations:
+      required: true
+
+  - type: input
+    id: jira-id
+    attributes:
+      label: ID do Jira
+      placeholder: "Ex: PROJ-123"
+
+  - type: textarea
+    id: preconditions
+    attributes:
+      label: Pré-condições
+      placeholder: "O que precisa estar configurado antes de executar este teste?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Passos para Execução
+      placeholder: |
+        1. Acesse a página de login
+        2. Insira usuário e senha
+        3. Clique em "Entrar"
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Resultado Esperado
+      placeholder: "O que deve acontecer após executar os passos?"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: automation
+    attributes:
+      label: Automatizado?
+      options:
+        - "✅ Sim"
+        - "⏳ Em progresso"
+        - "❌ Não"
+    validations:
+      required: true
+
+  - type: input
+    id: test-file
+    attributes:
+      label: Arquivo de Teste (se automatizado)
+      placeholder: "Ex: tests/e2e/login.spec.ts"

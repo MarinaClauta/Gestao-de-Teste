@@ -1,0 +1,76 @@
+name: ❌ Falha de Teste
+description: Registrar uma falha encontrada durante execução
+labels: ["test-fail", "bug"]
+body:
+  - type: input
+    id: jira-id
+    attributes:
+      label: ID do Jira relacionado
+      placeholder: "Ex: PROJ-123"
+
+  - type: input
+    id: test-case-issue
+    attributes:
+      label: Issue do Caso de Teste
+      placeholder: "Ex: #45"
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severidade
+      options:
+        - 🔴 Crítica — bloqueia entrega
+        - 🟠 Alta — funcionalidade principal afetada
+        - 🟡 Média — workaround possível
+        - 🟢 Baixa — cosmético ou edge case
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Ambiente onde falhou
+      options:
+        - Local
+        - CI/CD (GitHub Actions)
+        - Staging
+        - Produção
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Passos para reproduzir
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Resultado esperado
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Resultado obtido
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidências
+      placeholder: "Cole aqui logs, screenshots ou link para o run do GitHub Actions"
+
+  - type: input
+    id: actions-run
+    attributes:
+      label: Link do run no GitHub Actions
+      placeholder: "https://github.com/org/repo/actions/runs/..."
