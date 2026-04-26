@@ -1,0 +1,141 @@
+name: 🔗 Sync Jira ID to Project field
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  sync-jira-id:
+    runs-on: ubuntu-latest
+    # Roda apenas em Issues criadas com o template de caso de teste
+    if: contains(github.event.issue.labels.*.name, 'test-case')
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const body    = context.payload.issue.body ?? '';
+            const issueId = context.payload.issue.node_id;
+
+            // ── 1. Extrair o jira-id do corpo da Issue ───────────────────────
+            // O GitHub Forms renderiza os campos assim no body:
+            // ### 🔗 Tarefa do Jira vinculada
+            // PROJ-123
+            const match = body.match(
+              /###\s*(?:🔗\s*)?Tarefa do Jira vinculada\s*\n+([A-Z][A-Z0-9_]+-\d+)/i
+            );
+
+            if (!match) {
+              console.log('Nenhum Jira ID encontrado no corpo da Issue. Ignorando.');
+              return;
+            }
+
+            const jiraId = match[1].trim();
+            console.log(`Jira ID encontrado: ${jiraId}`);
+
+            // ── 2. Descobrir o tipo do owner (org ou user) ───────────────────
+            const repoData = await github.graphql(`
+              query($owner: String!, $repo: String!) {
+                repository(owner: $owner, name: $repo) {
+                  owner { __typename login }
+                }
+              }
+            `, { owner: context.repo.owner, repo: context.repo.repo });
+
+            const isOrg = repoData.repository.owner.__typename === 'Organization';
+
+            // ── 3. Buscar Projects e encontrar o item da Issue ───────────────
+            const projectQuery = isOrg ? `
+              query($owner: String!, $repo: String!) {
+                organization(login: $owner) {
+                  repository(name: $repo) {
+                    projectsV2(first: 10) { nodes {
+                      id
+                      fields(first: 30) { nodes {
+                        ... on ProjectV2Field { id name }
+                      }}
+                      items(first: 100) { nodes {
+                        id
+                        content { ... on Issue { id } }
+                      }}
+                    }}
+                  }
+                }
+              }
+            ` : `
+              query($owner: String!, $repo: String!) {
+                user(login: $owner) {
+                  repository(name: $repo) {
+                    projectsV2(first: 10) { nodes {
+                      id
+                      fields(first: 30) { nodes {
+                        ... on ProjectV2Field { id name }
+                      }}
+                      items(first: 100) { nodes {
+                        id
+                        content { ... on Issue { id } }
+                      }}
+                    }}
+                  }
+                }
+              }
+            `;
+
+            const data = await github.graphql(projectQuery, {
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+            });
+
+            const root     = isOrg ? data.organization : data.user;
+            const projects = root.repository.projectsV2.nodes;
+
+            let updated = false;
+
+            for (const project of projects) {
+              // Encontrar o campo "Jira ID" no Project
+              const jiraField = project.fields.nodes.find(
+                f => f.name?.toLowerCase() === 'jira id'
+              );
+
+              if (!jiraField) {
+                console.log(`Project "${project.id}": campo "Jira ID" não encontrado. Crie o campo Text com esse nome.`);
+                continue;
+              }
+
+              // Encontrar o item correspondente à Issue
+              const item = project.items.nodes.find(
+                i => i.content?.id === issueId
+              );
+
+              if (!item) {
+                console.log(`Issue não encontrada no Project "${project.id}". Adicione-a ao Project.`);
+                continue;
+              }
+
+              // ── 4. Atualizar o campo "Jira ID" com o valor extraído ────────
+              await github.graphql(`
+                mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId
+                    itemId:    $itemId
+                    fieldId:   $fieldId
+                    value:     { text: $value }
+                  }) { projectV2Item { id } }
+                }
+              `, {
+                projectId: project.id,
+                itemId:    item.id,
+                fieldId:   jiraField.id,
+                value:     jiraId,
+              });
+
+              console.log(`✅ Campo "Jira ID" atualizado para "${jiraId}" no Project.`);
+              updated = true;
+            }
+
+            if (!updated) {
+              console.log('Nenhum Project foi atualizado. Verifique se a Issue está adicionada ao Project e se o campo "Jira ID" (tipo Text) existe.');
+            }
