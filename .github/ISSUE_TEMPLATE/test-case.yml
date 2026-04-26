@@ -31,6 +31,15 @@ body:
   - type: input
     id: jira-id
     attributes:
+      label: "🔗 Tarefa do Jira vinculada"
+      description: "Informe o ID da tarefa do Jira relacionada a este caso de teste. O ID aparece na URL do Jira ou no título da tarefa. Formato esperado: CHAVE-número (ex: PROJ-123, QA-42)."
+      placeholder: "Ex: PROJ-123"
+    validations:
+      required: true
+
+  - type: input
+    id: jira-id
+    attributes:
       label: ID do Jira
       placeholder: "Ex: PROJ-123"
 
