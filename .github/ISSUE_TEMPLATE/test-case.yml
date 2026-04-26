@@ -37,12 +37,6 @@ body:
     validations:
       required: true
 
-  - type: input
-    id: jira-id
-    attributes:
-      label: ID do Jira
-      placeholder: "Ex: PROJ-123"
-
   - type: textarea
     id: preconditions
     attributes:
