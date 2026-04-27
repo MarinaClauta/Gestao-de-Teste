@@ -1,0 +1,173 @@
+name: 📁 Auto-create parent task by Jira ID
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  create-parent-task:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.labels.*.name, 'test-case')
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const body        = context.payload.issue.body ?? '';
+            const childIssue  = context.payload.issue;
+
+            // ── 1. Extrair Jira ID do corpo da Issue ─────────────────────────
+            const match = body.match(
+              /###\s*(?:🔗\s*)?Tarefa do Jira vinculada\s*\n+([A-Z][A-Z0-9_]+-\d+)/i
+            );
+
+            if (!match) {
+              console.log('Nenhum Jira ID encontrado. Ignorando.');
+              return;
+            }
+
+            const jiraId = match[1].trim();
+            console.log(`Jira ID: ${jiraId}`);
+
+            // ── 2. Buscar se já existe uma Issue-pai para este Jira ID ────────
+            // Usamos uma label dinâmica "jira:<ID>" para identificar a pai
+            const parentLabel = `jira:${jiraId}`;
+
+            const existing = await github.rest.issues.listForRepo({
+              owner:  context.repo.owner,
+              repo:   context.repo.repo,
+              labels: parentLabel,
+              state:  'open',
+              per_page: 1,
+            });
+
+            let parentIssueNumber;
+
+            if (existing.data.length > 0) {
+              // ── 3a. Pai já existe → reutiliza ────────────────────────────
+              parentIssueNumber = existing.data[0].number;
+              console.log(`Issue-pai já existe: #${parentIssueNumber}. Reutilizando.`);
+
+            } else {
+              // ── 3b. Pai não existe → cria agora ──────────────────────────
+
+              // Garante que a label "jira:<ID>" existe no repositório
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo:  context.repo.repo,
+                  name:  parentLabel,
+                });
+              } catch {
+                await github.rest.issues.createLabel({
+                  owner:       context.repo.owner,
+                  repo:        context.repo.repo,
+                  name:        parentLabel,
+                  color:       '0052CC',   // azul Jira
+                  description: `Agrupa casos de teste da tarefa ${jiraId}`,
+                });
+                console.log(`Label "${parentLabel}" criada.`);
+              }
+
+              // Cria a Issue-pai (a "pasta")
+              const jiraUrl  = `https://seu-jira.atlassian.net/browse/${jiraId}`;
+              const parent   = await github.rest.issues.create({
+                owner:  context.repo.owner,
+                repo:   context.repo.repo,
+                title:  `📁 ${jiraId} — Casos de teste`,
+                labels: [parentLabel, 'test-suite'],
+                body: [
+                  `## 📁 Suite de testes — ${jiraId}`,
+                  ``,
+                  `Esta issue agrupa todos os casos de teste relacionados à tarefa **[${jiraId}](${jiraUrl})** no Jira.`,
+                  ``,
+                  `> Os casos de teste aparecem como sub-issues abaixo. `,
+                  `> Quando todos estiverem concluídos, feche esta issue para encerrar o ciclo.`,
+                  ``,
+                  `---`,
+                  ``,
+                  `| Campo | Valor |`,
+                  `|-------|-------|`,
+                  `| Jira  | [${jiraId}](${jiraUrl}) |`,
+                  `| Status dos testes | 🔄 Em andamento |`,
+                ].join('\n'),
+              });
+
+              parentIssueNumber = parent.data.number;
+              console.log(`Issue-pai criada: #${parentIssueNumber}`);
+            }
+
+            // ── 4. Adicionar label "jira:<ID>" também na Issue-filho ─────────
+            // Isso permite filtrar todos os casos de teste de uma tarefa Jira
+            await github.rest.issues.addLabels({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: childIssue.number,
+              labels:       [parentLabel],
+            });
+
+            // ── 5. Vincular como sub-issue via GraphQL ────────────────────────
+            // Busca os node_ids da pai e da filha
+            const parentData = await github.graphql(`
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  issue(number: $number) { id }
+                }
+              }
+            `, {
+              owner:  context.repo.owner,
+              repo:   context.repo.repo,
+              number: parentIssueNumber,
+            });
+
+            const parentNodeId = parentData.repository.issue.id;
+            const childNodeId  = childIssue.node_id;
+
+            try {
+              await github.graphql(`
+                mutation($parentId: ID!, $childId: ID!) {
+                  addSubIssue(input: { issueId: $parentId, subIssueId: $childId }) {
+                    issue     { number title }
+                    subIssue  { number title }
+                  }
+                }
+              `, { parentId: parentNodeId, childId: childNodeId });
+
+              console.log(`✅ Issue #${childIssue.number} vinculada como sub-issue de #${parentIssueNumber}`);
+            } catch (err) {
+              // addSubIssue ainda está em beta público — fallback: menciona no comentário
+              console.log('Sub-issue API indisponível, usando comentário como fallback.');
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: parentIssueNumber,
+                body:         `🧪 Caso de teste vinculado: #${childIssue.number} — ${childIssue.title}`,
+              });
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: childIssue.number,
+                body:         `📁 Issue-pai (suite de testes): #${parentIssueNumber}`,
+              });
+            }
+
+            // ── 6. Comentário de confirmação na Issue-filho ───────────────────
+            await github.rest.issues.createComment({
+              owner:        context.repo.owner,
+              repo:         context.repo.repo,
+              issue_number: childIssue.number,
+              body: [
+                `### 🔗 Vínculo criado automaticamente`,
+                ``,
+                `| Campo | Valor |`,
+                `|-------|-------|`,
+                `| Tarefa Jira | \`${jiraId}\` |`,
+                `| Issue-pai (suite) | #${parentIssueNumber} |`,
+                ``,
+                `> Todos os casos de teste de \`${jiraId}\` ficam agrupados em #${parentIssueNumber}.`,
+              ].join('\n'),
+            });
